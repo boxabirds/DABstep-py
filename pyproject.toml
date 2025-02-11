@@ -8,7 +8,7 @@ dependencies = [
     "datasets",
     "pandas",
     "huggingface-hub",
-    "smolagents[openai]",
+    "smolagents[openai,litellm]",
     "dabstep-benchmark",  # Adding this since we're using dabstep_benchmark.utils
 ]
 
