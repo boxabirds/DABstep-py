@@ -1,4 +1,5 @@
-from setup import create_agent, parse_args, check_tokens, setup_data_dir, CONTEXT_FILENAMES
+from utils import create_agent, parse_args, check_tokens, setup_data_dir, CONTEXT_FILENAMES, generate_detailed_reasoning_trace
+import os
 
 args = parse_args()
 check_tokens(args)
@@ -27,3 +28,6 @@ PROMPT = PROMPT.format(
 )
 
 answer = agent.run(PROMPT)
+
+print("\n\n==== REASONING TRACE ====")
+print(generate_detailed_reasoning_trace(agent, args.api_base, os.getenv(args.api_key_var)))

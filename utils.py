@@ -1,6 +1,10 @@
 import os
 import argparse
 from smolagents import CodeAgent, OpenAIServerModel, LiteLLMModel
+from smolagents.agents import ActionStep
+from smolagents.monitoring import LogLevel
+from datasets import load_dataset, load_from_disk
+
 from huggingface_hub import login, hf_hub_download
 
 # Constants
@@ -14,6 +18,40 @@ CONTEXT_FILENAMES = [
     "data/context/manual.md",
 ]
 DATA_DIR = "DABstep-data"
+
+def clean_reasoning_trace(agent: CodeAgent) -> list:
+  for step in agent.logs:
+      # Remove memory from logs to make them more compact.
+      if hasattr(step, "memory"):
+          step.memory = None
+      if isinstance(step, ActionStep):
+          step.agent_memory = None
+  return agent.logs
+
+def generate_detailed_reasoning_trace(agent: CodeAgent, api_base: str, api_key: str) -> str:
+    model = OpenAIServerModel(
+            model_id=agent.model.model_id,
+            api_base=api_base,
+            api_key=api_key
+        )
+    
+    cleaned_steps = []
+    step_count = 1
+    
+    for step in agent.logs:
+        if isinstance(step, ActionStep):          
+            # Clean up this individual step
+            response = model.client.chat.completions.create(
+                model=agent.model.model_id,
+                messages=[{"role": "user", "content": f"without additional narrative,tidy up this text so it's more readable as plain text: {step}"}]
+            )
+            cleaned_step = response.choices[0].message.content
+            cleaned_steps.append(cleaned_step)
+            step_count += 1
+            print(f"Step {step_count}: {cleaned_step}")
+    
+    # Join all cleaned steps with double newlines for spacing
+    return "\n\n".join(cleaned_steps)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run DABstep with configurable model and API settings')
@@ -77,10 +115,15 @@ def setup_data_dir():
     
     return context_files
 
+def print_clean_reasoning_trace(trace):
+    for step in clean_reasoning_trace(trace):
+        print(step)
+
 def create_agent(args):
     MAX_STEPS = 7
     agent = CodeAgent(
         tools=[],
+        verbosity_level=LogLevel.DEBUG,
         model=OpenAIServerModel(
             model_id=args.model_id,
             api_base=args.api_base,
@@ -91,3 +134,21 @@ def create_agent(args):
     )
     agent.python_executor.static_tools.update({"open": open})
     return agent
+
+def load_cached_dataset(split: str, max_tasks: int) -> datasets.Dataset:
+    """Load the dataset from cache if it exists, otherwise download and cache it."""
+    cache_path = os.path.join(DATA_DIR, "datasets", f"tasks_{split}_{max_tasks}.cache")
+    
+    if os.path.exists(cache_path):
+        print(f"Loading cached dataset from {cache_path}")
+        return load_from_disk(cache_path)
+    
+    print(f"Downloading dataset for split={split}, max_tasks={max_tasks}")
+    dataset = load_dataset("adyen/DABstep", name="tasks", split=f"{split}[:{max_tasks}]")
+    
+    # Save to our cache
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    dataset.save_to_disk(cache_path)
+    print(f"Cached dataset to {cache_path}")
+    
+    return dataset
